@@ -388,79 +388,6 @@ static void tz_res_mem(void *fdt)
 	}
 }
 
-
-#ifdef TZ_UART_SHARED
-static void tz_res_uart(void *fdt __unused)
-{
-	msg("Uart shared between secure and non-secure world\n");
-}
-#else
-
-static bool node_is_compatible(void *fdt, int offs, const char *compat)
-{
-	int plen;
-	const char *prop;
-
-	prop = fdt_getprop(fdt, offs, "compatible", &plen);
-	if (!prop)
-		return false;
-
-	while (plen > 0) {
-		size_t l;
-
-		if (strcmp(prop, compat) == 0)
-			return true;
-
-		l = strlen(prop) + 1;
-		prop += l;
-		plen -= l;
-	}
-
-	return false;
-}
-
-static bool has_reg_base(void *fdt, int offs, size_t addr_size,
-			uintptr_t base)
-{
-	int plen;
-	size_t poffs = 0;
-	const void *prop;
-	uintptr_t prop_base;
-
-	prop = fdt_getprop(fdt, offs, "reg", &plen);
-	if (!prop)
-		return false;
-
-	prop_base = get_val(prop, &poffs, addr_size);
-	return prop_base == base;
-}
-
-static void tz_res_uart(void *fdt)
-{
-	int r;
-	int offs = 0;
-	const char *name;
-	size_t addr_size;
-
-	addr_size = get_cells_size(fdt, 0, "#address-cells");
-
-	while (true) {
-		offs = fdt_next_node(fdt, offs, NULL);
-		if (offs < 0)
-			break;
-		name = fdt_get_name(fdt, offs, NULL);
-		if (!node_is_compatible(fdt, offs, "arm,pl011"))
-			continue;
-		if (!has_reg_base(fdt, offs, addr_size, UART1_BASE))
-			continue;
-		msg("Removing node \"%s\" from DTB passed to kernel\n", name);
-		r = fdt_del_node(fdt, offs);
-		CHECK(r < 0);
-		break;
-	}
-}
-#endif
-
 static uint32_t copy_dtb(uint32_t dst, uint32_t src)
 {
 	int r;
@@ -532,7 +459,6 @@ void main_init_sec(struct sec_entry_arg *arg)
 	fdt = open_fdt(DTB_START, &__linker_nsec_dtb_start,
 			&__linker_nsec_dtb_end);
 	tz_res_mem(fdt);
-	tz_res_uart(fdt);
 	r = fdt_pack(fdt);
 	CHECK(r < 0);
 
