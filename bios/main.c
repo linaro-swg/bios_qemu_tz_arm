@@ -287,10 +287,11 @@ mem_avail:
 
 static void tz_res_mem_carve(const void *prop, size_t plen,
 			size_t addr_size, size_t len_size,
-			void *data, size_t *dlen)
+			void *data, size_t *dlen,
+			uint64_t res_start,
+			size_t res_size)
 {
-	const uint64_t tz_res_end = (uint64_t)TZ_RES_MEM_START +
-				    TZ_RES_MEM_SIZE;
+	uint64_t tz_res_end = res_start + res_size;
 	size_t poffs;
 	size_t doffs;
 	uint64_t start;
@@ -306,6 +307,9 @@ static void tz_res_mem_carve(const void *prop, size_t plen,
 		msg("0x%" PRIx64 " 0x%" PRIx64 "\n", start, len);
 	}
 
+	msg("Carving out memory: start len\n");
+	msg("0x%" PRIx64 " 0x%" PRIx64 "\n", res_start, (long long unsigned)res_size);
+
 	poffs = 0;
 	doffs = 0;
 	while (poffs < plen) {
@@ -313,29 +317,29 @@ static void tz_res_mem_carve(const void *prop, size_t plen,
 		len = get_val(prop, &poffs, len_size);
 		end = start + len;
 
-		if (TZ_RES_MEM_START == start && TZ_RES_MEM_SIZE == len) {
+		if (res_start == start && res_size == len) {
 			/*
 			 * Remove a region
 			 */
 
-		} else if (TZ_RES_MEM_START > start && tz_res_end < end) {
+		} else if (res_start > start && tz_res_end < end) {
 			/*
 			 * Split a region
 			 */
 			put_val(data, &doffs, addr_size, start);
 			put_val(data, &doffs, len_size,
-					TZ_RES_MEM_START - start);
+					res_start - start);
 
 			put_val(data, &doffs, addr_size, tz_res_end);
 			put_val(data, &doffs, len_size, end - tz_res_end);
 
-		} else if (TZ_RES_MEM_START > start && TZ_RES_MEM_START < end) {
+		} else if (res_start > start && res_start < end) {
 			/*
 			 * Chop of the end of a region.
 			 */
 			put_val(data, &doffs, addr_size, start);
 			put_val(data, &doffs, len_size,
-					TZ_RES_MEM_START - start);
+					res_start - start);
 		} else if (tz_res_end < end) {
 			/*
 			 * Chop of the begining of a region.
@@ -348,7 +352,7 @@ static void tz_res_mem_carve(const void *prop, size_t plen,
 	*dlen = doffs;
 
 	doffs = 0;
-	msg("Carved out TZ memory from DTB memory: start len\n");
+	msg("Carved out Reserved memory from DTB memory: start len\n");
 	while (doffs < *dlen) {
 		start = get_val(data, &doffs, addr_size);
 		len = get_val(data, &doffs, len_size);
@@ -381,7 +385,19 @@ static void tz_res_mem(void *fdt)
 		uint8_t data[len + (addr_size + len_size) * sizeof(uint32_t)];
 		size_t dlen = sizeof(data);
 
-		tz_res_mem_carve(prop, len, addr_size, len_size, data, &dlen);
+		tz_res_mem_carve(prop, len, addr_size, len_size, data, &dlen,
+				TZ_RES_MEM_START, TZ_RES_MEM_SIZE);
+
+		r = fdt_setprop(fdt, offs, "reg", data, dlen);
+		CHECK(r < 0);
+	}
+
+	{
+		uint8_t data[len + (addr_size + len_size) * sizeof(uint32_t)];
+		size_t dlen = sizeof(data);
+
+		tz_res_mem_carve(prop, len, addr_size, len_size, data, &dlen,
+				SDP_RES_MEM_START, SDP_RES_MEM_SIZE);
 
 		r = fdt_setprop(fdt, offs, "reg", data, dlen);
 		CHECK(r < 0);
@@ -478,6 +494,69 @@ static void tz_add_optee_node(void *fdt)
 	CHECK(ret < 0);
 }
 
+#define SDP_POOL_HEAP_NAME	"sdp-pool"
+#define SDP_POOL_HEAP_TYPE	6
+#define SDP_POOL_HEAP_ID	6
+#define SDP_POOL_BASE		SDP_RES_MEM_START
+#define SDP_POOL_SIZE		SDP_RES_MEM_SIZE
+
+static void tz_add_ion_sdp_heap_node(void *fdt)
+{
+	int offs_node;
+	int offs;
+	uint32_t addr;
+	uint32_t size;
+	int ret;
+
+	/*
+	 * Define SDP heaps in DT:
+	 * - add the big heap (minus 2MByte)
+	 * - add a 512kB heap.
+	 * - reserve last 1.5MB for heaps defined out of the DT.
+	 */
+	offs = fdt_path_offset(fdt, "/");
+	CHECK(offs < 0);
+	offs = fdt_add_subnode(fdt, offs, "securedata-heap");
+	CHECK(offs < 0);
+	ret = fdt_setprop_string(fdt, offs, "compatible", "linaro,securedatapath-heap");
+	CHECK(ret < 0);
+	offs_node = offs;
+
+	addr = SDP_POOL_BASE;
+	size = SDP_POOL_SIZE - (2 << 20);
+	msg("add SDP heap in DT [%x %x] \n", (unsigned)addr, (unsigned)addr + size);
+
+	offs = fdt_add_subnode(fdt, offs_node, "pool0");
+	CHECK(offs < 0);
+	ret = fdt_setprop_string(fdt, offs, "heap-name", SDP_POOL_HEAP_NAME"-0");
+	CHECK(ret < 0);
+	ret = fdt_setprop_u32(fdt, offs, "heap-id", SDP_POOL_HEAP_ID);
+	CHECK(ret < 0);
+	ret = fdt_setprop_u32(fdt, offs, "heap-base", addr);
+	CHECK(ret < 0);
+	ret = fdt_setprop_u32(fdt, offs, "heap-size", size);
+	CHECK(ret < 0);
+	ret = fdt_setprop_u32(fdt, offs, "heap-type", SDP_POOL_HEAP_TYPE);
+	CHECK(ret < 0);
+
+	addr += size;
+	size = 512 << 10;
+	msg("add SDP heap in DT [%x %x] \n", (unsigned)addr, (unsigned)addr + size);
+
+	offs = fdt_add_subnode(fdt, offs_node, "pool1");
+	CHECK(offs < 0);
+	ret = fdt_setprop_string(fdt, offs, "heap-name", SDP_POOL_HEAP_NAME"-1");
+	CHECK(ret < 0);
+	ret = fdt_setprop_u32(fdt, offs, "heap-id", SDP_POOL_HEAP_ID) ;
+	CHECK(ret < 0);
+	ret = fdt_setprop_u32(fdt, offs, "heap-base", addr);
+	CHECK(ret < 0);
+	ret = fdt_setprop_u32(fdt, offs, "heap-size", size);
+	CHECK(ret < 0);
+	ret = fdt_setprop_string(fdt, offs, "heap-type", "securedata");
+	CHECK(ret < 0);
+}
+
 static uint32_t copy_dtb(uint32_t dst, uint32_t src)
 {
 	int r;
@@ -551,6 +630,7 @@ void main_init_sec(struct sec_entry_arg *arg)
 	tz_res_mem(fdt);
 	tz_res_uart(fdt);
 	tz_add_optee_node(fdt);
+	tz_add_ion_sdp_heap_node(fdt);
 	r = fdt_pack(fdt);
 	CHECK(r < 0);
 
