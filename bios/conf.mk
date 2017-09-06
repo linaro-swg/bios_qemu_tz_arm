@@ -12,7 +12,7 @@ BIOS_COMMAND_LINE = console=ttyAMA0,115200 \
 cpuarch = cortex-a15
 cflags	 = -mcpu=$(cpuarch) -mthumb
 cflags	+= -mthumb-interwork -mlong-calls
-cflags += -fno-short-enums -mno-apcs-float -fno-common
+cflags += -fno-short-enums -fno-common
 cflags += -mno-unaligned-access
 aflags	 = -mcpu=$(cpuarch)
 
