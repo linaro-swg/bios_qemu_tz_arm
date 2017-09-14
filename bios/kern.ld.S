@@ -151,15 +151,6 @@ SECTIONS
 
 	_end = .;
 
-	blobs : ALIGN(4)  {
-		__linker_secure_blob_start = .;
-		*(secure_blob)
-		__linker_secure_blob_end = .;
-
-		. = ALIGN(4);
-	}
-
-
 	_end_of_ram = .;
 
 	/* Strip unnecessary stuff */

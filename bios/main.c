@@ -60,10 +60,6 @@ static uint32_t dtb_addr;
 static uint32_t rootfs_start;
 static uint32_t rootfs_end;
 
-extern const uint8_t __text_start;
-extern const uint8_t __linker_secure_blob_start;
-extern const uint8_t __linker_secure_blob_end;
-
 static uint32_t main_stack[4098]
 	__attribute__((section(".bss.prebss.stack"), aligned(8)));
 
@@ -111,23 +107,6 @@ static void check(const char *expr, const char *file, int line)
 {
 	msg("Check \"%s\": %s:%d\n", expr, file, line);
 	while (true);
-}
-
-static const void *unreloc(const void *addr)
-{
-	return (void *)((uint32_t)addr - (uint32_t)&__text_start);
-}
-
-static uint32_t copy_bios_image(const char *name, uint32_t dst,
-		const uint8_t *start, const uint8_t *end)
-{
-	size_t l = (size_t)(end - start);
-
-	msg("Copy image \"%s\" size %#zx, from %p to %p\n",
-		name, l, unreloc(start), (void *)dst);
-
-	memcpy((void *)dst, unreloc(start), l);
-	return dst + l;
 }
 
 static void *open_fdt(uint32_t dst)
@@ -178,21 +157,29 @@ static void copy_ns_images(void)
 }
 
 #define OPTEE_MAGIC		0x4554504f
-#define OPTEE_VERSION		1
+#define OPTEE_VERSION		2
 #define OPTEE_ARCH_ARM32	0
 #define OPTEE_ARCH_ARM64	1
 
+#define OPTEE_IMAGE_ID_PAGER	0
+#define OPTEE_IMAGE_ID_PAGED	1
+#define OPTEE_MAX_NUM_IMAGES	2
+
+
+struct optee_image {
+	uint32_t load_addr_hi;
+	uint32_t load_addr_lo;
+	uint32_t image_id;
+	uint32_t size;
+};
 
 struct optee_header {
 	uint32_t magic;
 	uint8_t version;
 	uint8_t arch;
 	uint16_t flags;
-	uint32_t init_size;
-	uint32_t init_load_addr_hi;
-	uint32_t init_load_addr_lo;
-	uint32_t init_mem_usage;
-	uint32_t paged_size;
+	uint32_t num_images;
+	struct optee_image images[OPTEE_MAX_NUM_IMAGES];
 };
 
 
@@ -206,12 +193,8 @@ void main_init_sec(struct sec_entry_arg *arg);
 void main_init_sec(struct sec_entry_arg *arg)
 {
 	void *fdt;
-	int r;
-	const uint8_t *sblob_start = &__linker_secure_blob_start;
-	const uint8_t *sblob_end = &__linker_secure_blob_end;
+	long r;
 	struct optee_header hdr;
-	size_t pg_part_size;
-	uint32_t pg_part_dst;
 
 	msg_init();
 
@@ -220,32 +203,40 @@ void main_init_sec(struct sec_entry_arg *arg)
 	r = fdt_pack(fdt);
 	CHECK(r < 0);
 
-	/* Look for a header first */
-	CHECK(((intptr_t)sblob_end - (intptr_t)sblob_start) <
-		(ssize_t)sizeof(hdr));
-	copy_bios_image("secure header", (uint32_t)&hdr, sblob_start,
-			sblob_start + sizeof(hdr));
-
+	r = semihosting_download_file("tee-header_v2.bin",
+				      sizeof(hdr), (uintptr_t)&hdr);
+	CHECK(r < 0);
 	CHECK(hdr.magic != OPTEE_MAGIC || hdr.version != OPTEE_VERSION);
 
 	msg("found secure header\n");
-	sblob_start += sizeof(hdr);
-	CHECK(hdr.init_load_addr_hi != 0);
+	CHECK(hdr.arch != OPTEE_ARCH_ARM32);
+	CHECK(hdr.num_images < 1 || hdr.num_images > OPTEE_MAX_NUM_IMAGES);
+	CHECK(hdr.images[0].image_id != OPTEE_IMAGE_ID_PAGER);
 
-	pg_part_size = sblob_end - sblob_start - hdr.init_size;
-	pg_part_dst = (size_t)TZ_RES_MEM_START + TZ_RES_MEM_SIZE - pg_part_size;
+	arg->entry = hdr.images[0].load_addr_lo;
+	arg->paged_part = 0;
 
-	copy_bios_image("secure paged part",
-			pg_part_dst, sblob_start + hdr.init_size, sblob_end);
+	r = semihosting_download_file("tee-pager_v2.bin", 2 * 1024 * 1024,
+				      arg->entry);
+	CHECK(r < 0);
 
-	sblob_end -= pg_part_size;
+	if (hdr.num_images > 1) {
+		uint32_t dst;
 
-	arg->paged_part = pg_part_dst;
-	arg->entry = hdr.init_load_addr_lo;
-
-	/* Copy secure image in place */
-	copy_bios_image("secure blob", hdr.init_load_addr_lo, sblob_start,
-			sblob_end);
+		CHECK(hdr.images[1].image_id != OPTEE_IMAGE_ID_PAGED);
+		if (hdr.images[1].load_addr_lo == 0xffffffff &&
+		    hdr.images[1].load_addr_hi == 0xffffffff) {
+			dst = (size_t)TZ_RES_MEM_START + TZ_RES_MEM_SIZE -
+				hdr.images[1].size;
+		} else {
+			CHECK(hdr.images[1].load_addr_hi != 0);
+			dst = hdr.images[1].load_addr_lo;
+		}
+		r = semihosting_download_file("tee-pageable_v2.bin",
+					      TZ_RES_MEM_SIZE, dst);
+		CHECK(r < 0);
+		arg->paged_part = dst;
+	}
 
 	copy_ns_images();
 	arg->fdt = dtb_addr;

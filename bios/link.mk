@@ -16,13 +16,6 @@ link-ldadd  = $(LDADD)
 link-ldadd += $(addprefix -L,$(libdirs))
 link-ldadd += $(addprefix -l,$(libnames))
 
-
-blob-objs += $(out-dir)secure_blob.o
-cleanfiles += $(out-dir)secure_blob.bin
-
-objs += $(blob-objs)
-cleanfiles += $(blob-objs)
-
 ldargs-bios.elf := $(link-ldflags) $(objs) $(link-ldadd) $(libgcc)
 
 link-script-cppflags :=  \
@@ -33,27 +26,11 @@ link-script-cppflags :=  \
 
 -include $(link-script-dep)
 
-ifndef BIOS_SECURE_BLOB
-$(error BIOS_SECURE_BLOB not defined!)
-endif
-$(out-dir)secure_blob.bin: $(BIOS_SECURE_BLOB) FORCE
-	@echo '  LN      $@'
-	@mkdir -p $(dir $@)
-	@rm -f $@
-	$(q)ln -s $(abspath $<) $@
-
-
-$(out-dir)secure_blob.o: $(out-dir)secure_blob.bin FORCE
-	@echo '  OBJCOPY $@'
-	$(q)$(OBJCOPY) -I binary -O elf32-littlearm -B arm \
-		--rename-section .data=secure_blob $< $@
-
 $(link-script-pp): $(link-script)
 	@echo '  CPP     $@'
 	@mkdir -p $(dir $@)
 	$(q)$(CPP) -Wp,-P,-MT,$@,-MD,$(link-script-dep) \
 		$(link-script-cppflags) $< > $@
-
 
 $(out-dir)bios.elf: $(objs) $(libdeps) $(link-script-pp)
 	@echo '  LD      $@'
