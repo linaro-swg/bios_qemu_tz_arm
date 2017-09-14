@@ -28,6 +28,7 @@
 #include "platform_config.h"
 
 #include <compiler.h>
+#include <assert.h>
 #include <types_ext.h>
 #include <inttypes.h>
 #include <string.h>
@@ -85,7 +86,7 @@ static void msg_init(void)
 	uart_init(CONSOLE_UART_BASE);
 }
 
-static void __printf(1, 2) msg(const char *fmt, ...)
+void __printf(1, 2) msg(const char *fmt, ...)
 {
 	va_list ap;
 	char buf[128];
@@ -106,7 +107,7 @@ static void msg_init(void)
 {
 }
 
-static void __printf(1, 2) msg(const char *fmt __unused, ...)
+void __printf(1, 2) msg(const char *fmt __unused, ...)
 {
 }
 #endif

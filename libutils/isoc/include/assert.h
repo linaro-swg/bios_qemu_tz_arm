@@ -27,8 +27,20 @@
 #ifndef ASSERT_H
 #define ASSERT_H
 
-void _assert_break(void);
-void _assert_log(const char *expr, const char *file, int line);
+#include <stdio.h>
+#include <compiler.h>
+
+void msg(const char *fmt, ...) __printf(1, 2);
+
+static inline void _assert_break(void)
+{
+	while (1);
+}
+
+static inline void _assert_log(const char *expr, const char *file, int line)
+{
+	msg("\"%s\": %s:%d\n", expr, file, line);
+}
 
 #define assert(expr) \
 	do { \
