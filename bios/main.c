@@ -27,14 +27,15 @@
 
 #include "platform_config.h"
 
-#include <compiler.h>
 #include <assert.h>
-#include <types_ext.h>
-#include <inttypes.h>
-#include <string.h>
-#include <stdio.h>
-#include <libfdt.h>
+#include <compiler.h>
 #include <drivers/uart.h>
+#include <inttypes.h>
+#include <libfdt.h>
+#include <stdio.h>
+#include <string.h>
+#include <types_ext.h>
+#include <semihosting.h>
 
 #ifndef MAX
 #define MAX(a, b) \
@@ -62,12 +63,6 @@ static uint32_t rootfs_end;
 extern const uint8_t __text_start;
 extern const uint8_t __linker_secure_blob_start;
 extern const uint8_t __linker_secure_blob_end;
-extern const uint8_t __linker_nsec_blob_start;
-extern const uint8_t __linker_nsec_blob_end;
-extern const uint8_t __linker_nsec_dtb_start;
-extern const uint8_t __linker_nsec_dtb_end;
-extern const uint8_t __linker_nsec_rootfs_start;
-extern const uint8_t __linker_nsec_rootfs_end;
 
 static uint32_t main_stack[4098]
 	__attribute__((section(".bss.prebss.stack"), aligned(8)));
@@ -135,20 +130,13 @@ static uint32_t copy_bios_image(const char *name, uint32_t dst,
 	return dst + l;
 }
 
-static void *open_fdt(uint32_t dst, const uint8_t *start, const uint8_t *end)
+static void *open_fdt(uint32_t dst)
 {
 	int r;
 	const void *s;
 
-	if (start != end) {
-		msg("Using hardcoded DTB\n");
-		CHECK((size_t)(end - start) > DTB_MAX_SIZE);
-		s = unreloc(start);
-		msg("Copy dtb from %p to %p\n", s, (void *)dst);
-	} else {
-		s = (void *)dst;
-		msg("Using QEMU provided DTB at %p\n", s);
-	}
+	s = (void *)dst;
+	msg("Using QEMU provided DTB at %p\n", s);
 
 	r = fdt_open_into(s, (void *)dst, DTB_MAX_SIZE);
 	CHECK(r < 0);
@@ -169,20 +157,24 @@ static uint32_t copy_dtb(uint32_t dst, uint32_t src)
 static void copy_ns_images(void)
 {
 	uint32_t dst;
+	long r;
 
 	/* 32MiB above beginning of RAM */
 	kernel_entry = DRAM_START + 32 * 1024 * 1024;
 
 	/* Copy non-secure image in place */
-	dst = copy_bios_image("kernel", kernel_entry, &__linker_nsec_blob_start,
-			&__linker_nsec_blob_end);
+	r = semihosting_download_file("zImage", 64 * 1024 * 1024, kernel_entry);
+	CHECK(r < 0);
+	dst = kernel_entry + r;
 
 	dtb_addr = ROUNDUP(dst, PAGE_SIZE) + 96 * 1024 * 1024; /* safe spot */
 	dst = copy_dtb(dtb_addr, DTB_START);
 
-	rootfs_start = ROUNDUP(dst + DTB_MAX_SIZE, PAGE_SIZE);
-	rootfs_end = copy_bios_image("rootfs", rootfs_start,
-			&__linker_nsec_rootfs_start, &__linker_nsec_rootfs_end);
+	rootfs_start = ROUNDUP(dst, PAGE_SIZE);
+	r = semihosting_download_file("rootfs.cpio.gz", 32 * 1024 * 1024,
+				      rootfs_start);
+	CHECK(r < 0);
+	rootfs_end = rootfs_start + r;
 }
 
 #define OPTEE_MAGIC		0x4554504f
@@ -224,8 +216,7 @@ void main_init_sec(struct sec_entry_arg *arg)
 	msg_init();
 
 	/* Find DTB */
-	fdt = open_fdt(DTB_START, &__linker_nsec_dtb_start,
-			&__linker_nsec_dtb_end);
+	fdt = open_fdt(DTB_START);
 	r = fdt_pack(fdt);
 	CHECK(r < 0);
 
@@ -256,10 +247,6 @@ void main_init_sec(struct sec_entry_arg *arg)
 	copy_bios_image("secure blob", hdr.init_load_addr_lo, sblob_start,
 			sblob_end);
 
-	/*
-	 * Copy NS images as while we can read the secure flash from where
-	 * we load them.
-	 */
 	copy_ns_images();
 	arg->fdt = dtb_addr;
 

@@ -157,21 +157,6 @@ SECTIONS
 		__linker_secure_blob_end = .;
 
 		. = ALIGN(4);
-
-		__linker_nsec_blob_start = .;
-		*(nsec_blob)
-		__linker_nsec_blob_end = .;
-
-		__linker_nsec_dtb_start = .;
-		*(nsec_dtb)
-		__linker_nsec_dtb_end = .;
-
-		__linker_nsec_rootfs_start = .;
-		*(nsec_rootfs)
-		__linker_nsec_rootfs_end = .;
-
-		. = ALIGN(4);
-
 	}
 
 

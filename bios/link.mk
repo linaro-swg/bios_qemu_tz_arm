@@ -17,15 +17,8 @@ link-ldadd += $(addprefix -L,$(libdirs))
 link-ldadd += $(addprefix -l,$(libnames))
 
 
-blob-objs += $(out-dir)secure_blob.o $(out-dir)nsec_blob.o
-blob-objs += $(out-dir)nsec_rootfs.o
-cleanfiles += $(out-dir)secure_blob.bin $(out-dir)nsec_blob.bin
-cleanfiles += $(out-dir)nsec_rootfs.bin
-
-ifdef BIOS_NSEC_DTB
-blob-objs += $(out-dir)nsec_dtb.o
-cleanfiles += $(out-dir)nsec_dtb.bin
-endif
+blob-objs += $(out-dir)secure_blob.o
+cleanfiles += $(out-dir)secure_blob.bin
 
 objs += $(blob-objs)
 cleanfiles += $(blob-objs)
@@ -54,54 +47,6 @@ $(out-dir)secure_blob.o: $(out-dir)secure_blob.bin FORCE
 	@echo '  OBJCOPY $@'
 	$(q)$(OBJCOPY) -I binary -O elf32-littlearm -B arm \
 		--rename-section .data=secure_blob $< $@
-
-ifndef BIOS_NSEC_BLOB
-$(error BIOS_NSEC_BLOB not defined!)
-endif
-$(out-dir)nsec_blob.bin: $(BIOS_NSEC_BLOB) FORCE
-	@echo '  LN      $@'
-	@mkdir -p $(dir $@)
-	@rm -f $@
-	$(q)ln -s $(abspath $<) $@
-
-$(out-dir)nsec_blob.o: $(out-dir)nsec_blob.bin FORCE
-	@echo '  OBJCOPY $@'
-	$(q)$(OBJCOPY) -I binary -O elf32-littlearm -B arm \
-		--rename-section .data=nsec_blob $< $@
-
-ifdef BIOS_NSEC_DTB
-$(out-dir)nsec_dtb.bin: $(BIOS_NSEC_DTB) FORCE
-	@echo '  LN      $@'
-	@mkdir -p $(dir $@)
-	@rm -f $@
-	$(q)ln -s $(abspath $<) $@
-
-$(out-dir)nsec_dtb.o: $(out-dir)nsec_dtb.bin FORCE
-	@echo '  OBJCOPY $@'
-	$(q)$(OBJCOPY) -I binary -O elf32-littlearm -B arm \
-		--rename-section .data=nsec_dtb $< $@
-endif
-
-ifndef BIOS_NSEC_ROOTFS
-$(error BIOS_NSEC_ROOTFS not defined!)
-else ifeq ($(BIOS_NSEC_ROOTFS),/dev/null)
-$(out-dir)nsec_rootfs.bin: FORCE
-	@echo '  MAKE    $@'
-	@mkdir -p $(dir $@)
-	@rm -f $@
-	$(q) echo 'Empty' > $@
-else
-$(out-dir)nsec_rootfs.bin: $(BIOS_NSEC_ROOTFS) FORCE
-	@echo '  LN      $@'
-	@mkdir -p $(dir $@)
-	@rm -f $@
-	$(q)ln -s $(abspath $<) $@
-endif
-
-$(out-dir)nsec_rootfs.o: $(out-dir)nsec_rootfs.bin FORCE
-	@echo '  OBJCOPY $@'
-	$(q)$(OBJCOPY) -I binary -O elf32-littlearm -B arm \
-		--rename-section .data=nsec_rootfs $< $@
 
 $(link-script-pp): $(link-script)
 	@echo '  CPP     $@'
