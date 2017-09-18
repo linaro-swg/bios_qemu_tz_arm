@@ -52,10 +52,20 @@ LOCAL_FUNC reset , :
 	read_sctlr r0
 	orr	r0, r0, #SCTLR_A
 	write_sctlr r0
+	isb
 
 	/* Setup vector */
 	adr	r0, _start
 	write_vbar r0
+
+	/* Park secondary cores until we're about to enter OP-TEE */
+	read_mpidr r0
+	/* Calculate CorePos = (ClusterId * 4) + CoreId */
+	and	r1, r0, #MPIDR_CPU_MASK
+	and	r0, r0, #MPIDR_CLUSTER_MASK
+	add	r0, r1, r0, LSR #6
+	cmp	r0, #0
+	bne	secondary_hold
 
 	/* Relocate bios to RAM */
 	mov	r0, #0
@@ -119,3 +129,16 @@ LOCAL_FUNC zero_mem , :
 	sub	r1, r1, #1
 	b	zero_mem
 END_FUNC zero_mem
+
+LOCAL_FUNC secondary_hold , :
+	mov_imm	r1, SECURE_RAM_START
+	add	r0, r1, r0, LSL #2
+	mov	r1, #0
+	str	r1, [r0]
+1:
+	ldr	r1, [r0]
+	cmp	r1, #0
+	wfeeq
+	beq	1b
+	bx	r1
+END_FUNC secondary_hold
