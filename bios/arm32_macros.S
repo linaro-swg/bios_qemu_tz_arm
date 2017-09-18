@@ -52,3 +52,13 @@
 	.macro write_mvbar reg
 	mcr     p15, 0, \reg, c12, c0, 1
 	.endm
+
+	.macro mov_imm reg, val
+		.if ((\val) & 0xffff0000) == 0
+			movw	\reg, #(\val)
+		.else
+			movw	\reg, #((\val) & 0xffff)
+			movt	\reg, #((\val) >> 16)
+		.endif
+	.endm
+
