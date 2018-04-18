@@ -188,20 +188,11 @@ struct sec_entry_arg {
 	uint32_t paged_part;
 	uint32_t fdt;
 };
-/* called from assembly only */
-void main_init_sec(struct sec_entry_arg *arg);
-void main_init_sec(struct sec_entry_arg *arg)
+
+static void copy_secure_images(struct sec_entry_arg *arg)
 {
-	void *fdt;
 	long r;
 	struct optee_header hdr;
-
-	msg_init();
-
-	/* Find DTB */
-	fdt = open_fdt(DTB_START);
-	r = fdt_pack(fdt);
-	CHECK(r < 0);
 
 	r = semihosting_download_file("tee-header_v2.bin",
 				      sizeof(hdr), (uintptr_t)&hdr);
@@ -237,11 +228,32 @@ void main_init_sec(struct sec_entry_arg *arg)
 		CHECK(r < 0);
 		arg->paged_part = dst;
 	}
+}
+
+/* called from assembly only */
+void main_init(struct sec_entry_arg *arg, int secure);
+void main_init(struct sec_entry_arg *arg, int secure)
+{
+	void *fdt;
+	int r;
+
+	msg_init();
+
+	/* Find DTB */
+	fdt = open_fdt(DTB_START);
+	r = fdt_pack(fdt);
+	CHECK(r < 0);
+
+	/* Act as a secure bootload only if caller comes for Qemu bootram */
+	if (secure)
+		copy_secure_images(arg);
 
 	copy_ns_images();
+
 	arg->fdt = dtb_addr;
 
-	msg("Initializing secure world\n");
+	if (secure)
+		msg("Initializing secure world\n");
 }
 
 static void setprop_cell(void *fdt, const char *node_path,
