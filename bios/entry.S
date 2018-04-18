@@ -68,11 +68,21 @@ LOCAL_FUNC reset , :
 	bne	secondary_hold
 
 	/* Relocate bios to RAM */
-	mov	r0, #0
+	mov	r5, pc
+	ldr	r0, __location_tag_addr
+__location_tag:
+	sub	r0, r0, r5
 	ldr	r1, =__text_start
 	ldr	r2, =__data_end
+	sub	r0, r1, r0
 	sub	r2, r2, r1
 	bl	copy_blob
+
+	/* R5 will state if booting as bios or 2nd boot stage */
+	mov_imm	r5, DRAM_START
+	cmp	r5, pc
+	movlt	r5, #0		/* Boot with secure state */
+	movge	r5, #1		/* Boot with non-secure state */
 
 	/* Jump to new location in RAM */
 	ldr	ip, =new_loc
@@ -95,13 +105,20 @@ new_loc:
 
 	push	{r0, r1, r2}
 	mov	r0, sp
-	ldr	ip, =main_init_sec
+	mov	r1, r5
+	ldr	ip, =main_init
 	blx	ip
 	pop	{r0, r1, r2}
+
+	cmp	r5, #0
+	beq	1f
+
+	/* Boot the secure image with its expected arguments */
 	mov	ip, r0	/* entry address */
 	mov	r0, r1	/* argument (address of pagable part if != 0) */
 	blx	ip
 
+1:
 	/*
 	 * Setup stack again as we're in non-secure mode now and have
 	 * new registers.
@@ -142,3 +159,7 @@ LOCAL_FUNC secondary_hold , :
 	beq	1b
 	bx	r1
 END_FUNC secondary_hold
+
+.align 2
+__location_tag_addr:
+	.long __location_tag
