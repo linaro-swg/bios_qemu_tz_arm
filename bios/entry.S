@@ -147,16 +147,25 @@ LOCAL_FUNC zero_mem , :
 	b	zero_mem
 END_FUNC zero_mem
 
+/*
+ * struct mailbox {
+ *	uint32_t entry_addr;		LSB stores the 32bit entry address.
+ *	uint32_t reserved;
+ *	uint64_t pen[NB_CPU];		Core released if 32b LSB pen[core]!=0.
+ * }
+ */
 LOCAL_FUNC secondary_hold , :
-	mov_imm	r1, SECURE_RAM_START
-	add	r0, r1, r0, LSL #2
+	mov_imm	r2, SECURE_RAM_START
+	add	r0, r2, r0, LSL #3
 	mov	r1, #0
-	str	r1, [r0]
+	str	r1, [r0, #8]
 1:
-	ldr	r1, [r0]
+	ldr	r1, [r0, #8]
 	cmp	r1, #0
 	wfeeq
 	beq	1b
+	dsb
+	ldr	r1, [r2]
 	bx	r1
 END_FUNC secondary_hold
 
