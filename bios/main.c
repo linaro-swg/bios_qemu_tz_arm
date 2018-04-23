@@ -189,6 +189,8 @@ struct sec_entry_arg {
 	uint32_t fdt;
 };
 
+#define PAGESTORE_OFFSET	0x00400000
+
 static void copy_secure_images(struct sec_entry_arg *arg)
 {
 	long r;
@@ -217,14 +219,16 @@ static void copy_secure_images(struct sec_entry_arg *arg)
 		CHECK(hdr.images[1].image_id != OPTEE_IMAGE_ID_PAGED);
 		if (hdr.images[1].load_addr_lo == 0xffffffff &&
 		    hdr.images[1].load_addr_hi == 0xffffffff) {
-			dst = (size_t)TZ_RES_MEM_START + TZ_RES_MEM_SIZE -
-				hdr.images[1].size;
+			dst = (size_t)TZ_RES_MEM_START + PAGESTORE_OFFSET;
 		} else {
 			CHECK(hdr.images[1].load_addr_hi != 0);
 			dst = hdr.images[1].load_addr_lo;
 		}
+
 		r = semihosting_download_file("tee-pageable_v2.bin",
-					      TZ_RES_MEM_SIZE, dst);
+					       TZ_RES_MEM_START +
+					       TZ_RES_MEM_SIZE - dst,
+						dst);
 		CHECK(r < 0);
 		arg->paged_part = dst;
 	}
